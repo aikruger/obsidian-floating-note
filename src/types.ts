@@ -5,18 +5,28 @@ export interface NoteGeometry {
     height: number;
 }
 
-export interface SavedConfiguration {
-    id: string;           // Unique slug, e.g. "daily-notes-sidebar"
-    name: string;         // Human-readable display name
-    notePath: string;     // Vault-relative path to the note, e.g. "Daily/2026-07-22.md"
-    position: 'center' | 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'custom';
-    customX?: number;     // Used when position === 'custom'
-    customY?: number;
+export interface SavedDashboardTab {
+    notePath: string;
+    isActive?: boolean;
+}
+
+export interface SavedDashboardGroup {
+    id: string;
+    tabs: SavedDashboardTab[];
+}
+
+export interface SavedFloatingDashboard {
+    id: string;
+    name: string;
     width: number;
     height: number;
+    x?: number;
+    y?: number;
+    position?: 'center' | 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'custom';
     opacity: number;
     alwaysOnTop: boolean;
     openOnStartup: boolean;
+    groups: SavedDashboardGroup[];
 }
 
 export interface FloatingNoteSettings {
@@ -27,7 +37,7 @@ export interface FloatingNoteSettings {
     notePositions: Record<string, NoteGeometry>;
     alwaysOnTop: boolean;
     defaultOpacity: number;
-    savedConfigurations: SavedConfiguration[];
+    savedDashboards: SavedFloatingDashboard[];
 }
 
 export const DEFAULT_SETTINGS: FloatingNoteSettings = {
@@ -38,5 +48,5 @@ export const DEFAULT_SETTINGS: FloatingNoteSettings = {
     notePositions: {},
     alwaysOnTop: true,
     defaultOpacity: 1.0,
-    savedConfigurations: [],
+    savedDashboards: [],
 };

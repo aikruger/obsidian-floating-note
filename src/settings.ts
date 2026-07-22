@@ -1,6 +1,6 @@
 import { App, PluginSettingTab, Setting, Notice } from "obsidian";
 import FloatingNotePlugin from "./main";
-import { SavedConfiguration } from "./types";
+import { SavedFloatingDashboard } from "./types";
 
 export class FloatingNoteSettingTab extends PluginSettingTab {
     plugin: FloatingNotePlugin;
@@ -100,155 +100,128 @@ export class FloatingNoteSettingTab extends PluginSettingTab {
 
         // --- ADD THIS SECTION after "Window Behavior" and before "Data Management" ---
 
-        containerEl.createEl("h3", { text: "Saved Configurations" });
+        containerEl.createEl("h3", { text: "Floating Dashboards" });
 
-        const configDesc = containerEl.createEl('p');
-        configDesc.setText(
-            'Save named configurations of a specific note + window layout. ' +
-            'Each configuration can open at startup and is accessible via a command ' +
-            '(searchable in Command Palette and assignable in Commander). ' +
-            'Reload the plugin after adding new configurations for commands to appear.'
+        const dashboardDesc = containerEl.createEl("p");
+        dashboardDesc.setText(
+            "Save and restore a whole floating dashboard from the currently focused popout window. " +
+            "Version 1 saves multiple note tabs in one floating tab group. " +
+            "This does not save or modify the main Obsidian workspace."
         );
 
-        // Render existing configurations
-        for (let i = 0; i < this.plugin.settings.savedConfigurations.length; i++) {
-            const config = this.plugin.settings.savedConfigurations[i];
-            const configEl = containerEl.createEl('div', { cls: 'floating-note-config-item' });
-            configEl.style.border = '1px solid var(--background-modifier-border)';
-            configEl.style.borderRadius = '6px';
-            configEl.style.padding = '12px';
-            configEl.style.marginBottom = '12px';
-
-            configEl.createEl('strong', { text: config.name });
-            configEl.createEl('p', { text: `Note: ${config.notePath}`, cls: 'setting-item-description' });
-            configEl.createEl('p', { text: `Size: ${config.width}×${config.height}  Position: ${config.position}  Opacity: ${config.opacity}  Always on top: ${config.alwaysOnTop}  Startup: ${config.openOnStartup}`, cls: 'setting-item-description' });
-            configEl.createEl('p', { text: `Commander command ID: open-config-${config.id}`, cls: 'setting-item-description' });
-
-            new Setting(configEl)
-                .addButton(btn => btn
-                    .setButtonText('Launch now')
-                    .onClick(async () => {
-                        console.log(`[FloatingNote] Manual launch of config "${config.name}" from settings`);
-                        await this.plugin.openConfiguration(config);
-                    }))
-                .addButton(btn => btn
-                    .setButtonText('Delete')
-                    .setWarning()
-                    .onClick(async () => {
-                        console.log(`[FloatingNote] Deleting config "${config.name}"`);
-                        this.plugin.settings.savedConfigurations.splice(i, 1);
-                        await this.plugin.saveSettings();
-                        this.display(); // re-render settings panel
-                    }));
-        }
-
-        // "Add new configuration" form
-        containerEl.createEl("h4", { text: "Add new configuration" });
-
-        let newConfig: Partial<SavedConfiguration> = {
-            position: 'top-right',
-            width: this.plugin.settings.defaultWidth,
-            height: this.plugin.settings.defaultHeight,
-            opacity: this.plugin.settings.defaultOpacity,
-            alwaysOnTop: this.plugin.settings.alwaysOnTop,
-            openOnStartup: false,
-        };
+        let newDashboardName = "";
+        let newDashboardStartup = false;
 
         new Setting(containerEl)
-            .setName('Configuration name')
-            .setDesc('A unique human-readable label, e.g. "Daily Note Sidebar"')
+            .setName("Dashboard name")
+            .setDesc("Name for the currently focused floating dashboard")
             .addText(text => text
-                .setPlaceholder('My Config')
-                .onChange(value => { newConfig.name = value; }));
-
-        new Setting(containerEl)
-            .setName('Note path')
-            .setDesc('Vault-relative path including folder, e.g. "Daily/scratch.md"')
-            .addText(text => text
-                .setPlaceholder('folder/note.md')
-                .onChange(value => { newConfig.notePath = value; }));
-
-        new Setting(containerEl)
-            .setName('Position')
-            .addDropdown(dd => dd
-                .addOption('center', 'Center')
-                .addOption('top-right', 'Top Right')
-                .addOption('top-left', 'Top Left')
-                .addOption('bottom-right', 'Bottom Right')
-                .addOption('bottom-left', 'Bottom Left')
-                .setValue('top-right')
-                .onChange(value => { newConfig.position = value as any; }));
-
-        new Setting(containerEl)
-            .setName('Width (px)')
-            .addText(text => text
-                .setPlaceholder(String(this.plugin.settings.defaultWidth))
+                .setPlaceholder("Research dashboard")
                 .onChange(value => {
-                    const n = Number(value);
-                    if (!isNaN(n) && n > 100) newConfig.width = n;
+                    newDashboardName = value;
                 }));
 
         new Setting(containerEl)
-            .setName('Height (px)')
-            .addText(text => text
-                .setPlaceholder(String(this.plugin.settings.defaultHeight))
-                .onChange(value => {
-                    const n = Number(value);
-                    if (!isNaN(n) && n > 100) newConfig.height = n;
-                }));
-
-        new Setting(containerEl)
-            .setName('Opacity')
-            .addSlider(slider => slider
-                .setLimits(0.3, 1.0, 0.05)
-                .setValue(this.plugin.settings.defaultOpacity)
-                .setDynamicTooltip()
-                .onChange(value => { newConfig.opacity = value; }));
-
-        new Setting(containerEl)
-            .setName('Always on top')
-            .addToggle(toggle => toggle
-                .setValue(true)
-                .onChange(value => { newConfig.alwaysOnTop = value; }));
-
-        new Setting(containerEl)
-            .setName('Open at Obsidian startup')
-            .setDesc('This configuration will launch automatically when Obsidian opens')
+            .setName("Open at startup")
+            .setDesc("Automatically restore this floating dashboard when Obsidian starts")
             .addToggle(toggle => toggle
                 .setValue(false)
-                .onChange(value => { newConfig.openOnStartup = value; }));
+                .onChange(value => {
+                    newDashboardStartup = value;
+                }));
 
         new Setting(containerEl)
-            .addButton(btn => btn
-                .setButtonText('Save configuration')
+            .setName("Save current floating dashboard")
+            .setDesc("Focus a tab inside the floating dashboard you want to save, then click Save")
+            .addButton(button => button
+                .setButtonText("Save dashboard")
                 .setCta()
                 .onClick(async () => {
-                    if (!newConfig.name || !newConfig.notePath) {
-                        new Notice('Please set both a name and a note path.');
-                        console.warn('[FloatingNote] Save config aborted — missing name or notePath');
+                    if (!newDashboardName.trim()) {
+                        new Notice("Please enter a dashboard name.");
+                        console.warn("[FloatingNote] Save dashboard aborted: missing name");
                         return;
                     }
-                    const id = newConfig.name
-                        .toLowerCase()
-                        .replace(/[^a-z0-9]+/g, '-')
-                        .replace(/(^-|-$)/g, '');
-                    const complete: SavedConfiguration = {
-                        id,
-                        name: newConfig.name,
-                        notePath: newConfig.notePath,
-                        position: newConfig.position ?? 'top-right',
-                        width: newConfig.width ?? this.plugin.settings.defaultWidth,
-                        height: newConfig.height ?? this.plugin.settings.defaultHeight,
-                        opacity: newConfig.opacity ?? this.plugin.settings.defaultOpacity,
-                        alwaysOnTop: newConfig.alwaysOnTop ?? true,
-                        openOnStartup: newConfig.openOnStartup ?? false,
-                    };
-                    console.log('[FloatingNote] Saving new configuration:', complete);
-                    this.plugin.settings.savedConfigurations.push(complete);
-                    await this.plugin.saveSettings();
-                    new Notice(`Configuration "${complete.name}" saved. Reload the plugin for its command to appear in Commander.`);
-                    this.display();
+
+                    console.log(`[FloatingNote] Attempting to save current floating dashboard as "${newDashboardName}"`);
+                    const ok = await this.plugin.saveDashboardFromActivePopout(newDashboardName.trim(), newDashboardStartup);
+                    if (ok) {
+                        this.display();
+                    }
                 }));
+
+        // Render saved dashboards
+        containerEl.createEl("h4", { text: "Saved dashboards" });
+
+        if (this.plugin.settings.savedDashboards.length === 0) {
+            containerEl.createEl("p", {
+                text: "No floating dashboards saved yet.",
+                cls: "setting-item-description"
+            });
+        }
+
+        for (const dashboard of this.plugin.settings.savedDashboards) {
+            const tabCount = dashboard.groups.reduce((sum, group) => sum + group.tabs.length, 0);
+
+            const block = containerEl.createDiv({ cls: "floating-note-dashboard-item" });
+            block.style.border = "1px solid var(--background-modifier-border)";
+            block.style.borderRadius = "6px";
+            block.style.padding = "12px";
+            block.style.marginBottom = "12px";
+
+            block.createEl("strong", { text: dashboard.name });
+            block.createEl("p", {
+                text: `Tabs: ${tabCount} · Groups: ${dashboard.groups.length} · Startup: ${dashboard.openOnStartup}`,
+                cls: "setting-item-description"
+            });
+            block.createEl("p", {
+                text: `Bounds: ${dashboard.width}×${dashboard.height} at ${dashboard.position === 'custom' ? `${dashboard.x}, ${dashboard.y}` : dashboard.position} · Opacity: ${dashboard.opacity} · Always on top: ${dashboard.alwaysOnTop}`,
+                cls: "setting-item-description"
+            });
+            block.createEl("p", {
+                text: `Commander command: Open floating dashboard: ${dashboard.name}`,
+                cls: "setting-item-description"
+            });
+            block.createEl("p", {
+                text: "After adding a dashboard, reload the plugin if Commander does not yet show the new command.",
+                cls: "setting-item-description"
+            });
+
+            new Setting(block)
+                .addToggle(toggle => toggle
+                    .setTooltip("Open this dashboard at startup")
+                    .setValue(dashboard.openOnStartup)
+                    .onChange(async (value) => {
+                        dashboard.openOnStartup = value;
+                        await this.plugin.saveSettings();
+                        console.log(`[FloatingNote] Updated openOnStartup for dashboard "${dashboard.name}" to`, value);
+                    }))
+                .addButton(button => button
+                    .setButtonText("Launch now")
+                    .onClick(async () => {
+                        console.log(`[FloatingNote] Launch now clicked for dashboard "${dashboard.name}"`);
+                        await this.plugin.openSavedDashboard(dashboard);
+                    }))
+                .addButton(button => button
+                    .setButtonText("Replace from current")
+                    .onClick(async () => {
+                        console.log(`[FloatingNote] Replace from current clicked for dashboard "${dashboard.name}"`);
+                        const ok = await this.plugin.replaceDashboardFromActivePopout(dashboard.id);
+                        if (ok) {
+                            this.display();
+                        }
+                    }))
+                .addButton(button => button
+                    .setButtonText("Delete")
+                    .setWarning()
+                    .onClick(async () => {
+                        console.log(`[FloatingNote] Deleting dashboard "${dashboard.name}"`);
+                        this.plugin.settings.savedDashboards =
+                            this.plugin.settings.savedDashboards.filter(d => d.id !== dashboard.id);
+                        await this.plugin.saveSettings();
+                        this.display();
+                    }));
+        }
 
         containerEl.createEl("h3", { text: "Data Management" });
 
