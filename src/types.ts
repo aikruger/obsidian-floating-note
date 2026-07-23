@@ -1,3 +1,5 @@
+import { ViewState } from "obsidian";
+
 export interface NoteGeometry {
     x: number;
     y: number;
@@ -5,14 +7,14 @@ export interface NoteGeometry {
     height: number;
 }
 
-export interface SavedDashboardTab {
-    notePath: string;
+export interface SavedDashboardLeaf {
+    viewState: ViewState;
     isActive?: boolean;
 }
 
 export interface SavedDashboardGroup {
     id: string;
-    tabs: SavedDashboardTab[];
+    leaves: SavedDashboardLeaf[];
 }
 
 export interface SavedFloatingDashboard {

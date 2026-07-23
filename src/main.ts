@@ -10,7 +10,7 @@ import {
     DEFAULT_SETTINGS,
     SavedFloatingDashboard,
     SavedDashboardGroup,
-    SavedDashboardTab
+    SavedDashboardLeaf
 } from "./types";
 import { FloatingNoteSettingTab } from "./settings";
 
@@ -166,6 +166,22 @@ export default class FloatingNotePlugin extends Plugin {
         return leaves.length ? leaves : [baseLeaf];
     }
 
+    private captureLeafViewState(leaf: WorkspaceLeaf) {
+        try {
+            const viewState = leaf.getViewState();
+            console.log("[FloatingNote] captureLeafViewState", {
+                type: viewState?.type,
+                active: viewState?.active,
+                state: viewState?.state,
+                isDeferred: (leaf as any).isDeferred,
+            });
+            return viewState;
+        } catch (error) {
+            console.error("[FloatingNote] Failed to capture leaf view state", error, leaf);
+            return null;
+        }
+    }
+
     public captureActiveFloatingDashboard(): SavedFloatingDashboard | null {
         try {
             const activeLeaf = this.getActivePopoutLeaf();
@@ -188,24 +204,27 @@ export default class FloatingNotePlugin extends Plugin {
             const bounds = electronWindow.getBounds();
             console.log("[FloatingNote] Capturing dashboard bounds", bounds);
 
-            const tabs: SavedDashboardTab[] = [];
+            const savedLeaves: SavedDashboardLeaf[] = [];
             for (const leaf of leaves) {
-                const file = (leaf.view as any)?.file;
-                if (file instanceof TFile && file.extension === "md") {
-                    const isActive = leaf === activeLeaf;
-                    tabs.push({
-                        notePath: file.path,
-                        isActive,
+                const viewState = this.captureLeafViewState(leaf);
+                if (viewState) {
+                    savedLeaves.push({
+                        viewState,
+                        isActive: leaf === activeLeaf,
                     });
-                    console.log("[FloatingNote] Captured dashboard tab", { path: file.path, isActive });
+                    console.log("[FloatingNote] Captured dashboard leaf", {
+                        type: viewState.type,
+                        isActive: leaf === activeLeaf,
+                    });
+                    console.warn(`[FloatingNote] Leaf type "${viewState.type}" may not fully restore if plugin does not persist view state`);
                 } else {
-                    console.warn("[FloatingNote] Skipping non-markdown or missing file leaf during dashboard capture", leaf);
+                    console.warn("[FloatingNote] Skipping leaf because no view state could be captured");
                 }
             }
 
-            if (tabs.length === 0) {
-                new Notice("Floating Note: no markdown tabs found in the active floating dashboard.");
-                console.warn("[FloatingNote] Dashboard capture found zero markdown tabs");
+            if (savedLeaves.length === 0) {
+                new Notice("Floating Note: no savable tabs found in the active floating dashboard.");
+                console.warn("[FloatingNote] Dashboard capture found zero savable leaves");
                 return null;
             }
 
@@ -225,7 +244,7 @@ export default class FloatingNotePlugin extends Plugin {
                 groups: [
                     {
                         id: "group-1",
-                        tabs,
+                        leaves: savedLeaves,
                     },
                 ],
             };
@@ -403,21 +422,14 @@ export default class FloatingNotePlugin extends Plugin {
     public async openSavedDashboard(dashboard: SavedFloatingDashboard): Promise<void> {
         console.log(`[FloatingNote] Opening saved dashboard "${dashboard.name}"`);
 
-        if (!dashboard.groups?.length || !dashboard.groups[0]?.tabs?.length) {
-            console.warn("[FloatingNote] Dashboard has no tabs to restore", dashboard);
-            new Notice(`Floating dashboard "${dashboard.name}" has no tabs.`);
+        if (!dashboard.groups?.length || !dashboard.groups[0]?.leaves?.length) {
+            console.warn("[FloatingNote] Dashboard has no leaves to restore", dashboard);
+            new Notice(`Floating dashboard "${dashboard.name}" has no leaves.`);
             return;
         }
 
         try {
-            const firstTab = dashboard.groups[0].tabs[0];
-            const firstFile = this.app.vault.getAbstractFileByPath(firstTab.notePath);
-
-            if (!(firstFile instanceof TFile)) {
-                console.warn("[FloatingNote] First dashboard tab file missing", firstTab.notePath);
-                new Notice(`Floating dashboard "${dashboard.name}": first note is missing.`);
-                return;
-            }
+            const firstLeaf = dashboard.groups[0].leaves[0];
 
             const popoutLeaf = this.app.workspace.openPopoutLeaf();
             this.floatingLeaves.add(popoutLeaf);
@@ -426,9 +438,9 @@ export default class FloatingNotePlugin extends Plugin {
                 console.log(`[FloatingNote] Popout leaf closed for dashboard "${dashboard.name}"`);
             });
 
-            await popoutLeaf.openFile(firstFile);
+            await popoutLeaf.setViewState(firstLeaf.viewState);
             this.app.workspace.setActiveLeaf(popoutLeaf, { focus: true });
-            console.log("[FloatingNote] Opened first dashboard tab", firstTab.notePath);
+            console.log("[FloatingNote] Restored first dashboard leaf", firstLeaf.viewState.type);
 
             const popoutWindow = (popoutLeaf.view.containerEl as any)?.win;
             const electronWindow = popoutWindow?.electronWindow;
@@ -463,36 +475,34 @@ export default class FloatingNotePlugin extends Plugin {
             }
 
             const parentTabs = (popoutLeaf as any).parent;
-            for (let i = 1; i < dashboard.groups[0].tabs.length; i++) {
-                const tab = dashboard.groups[0].tabs[i];
-                const file = this.app.vault.getAbstractFileByPath(tab.notePath);
-
-                if (!(file instanceof TFile)) {
-                    console.warn("[FloatingNote] Missing dashboard tab file during restore", tab.notePath);
-                    continue;
-                }
-
+            for (let i = 1; i < dashboard.groups[0].leaves.length; i++) {
+                const savedLeaf = dashboard.groups[0].leaves[i];
                 let newLeaf: WorkspaceLeaf | null = null;
 
                 if (parentTabs && this.app.workspace.createLeafInParent) {
                     newLeaf = this.app.workspace.createLeafInParent(parentTabs, i);
-                    console.log("[FloatingNote] Created new leaf in existing popout tab parent", tab.notePath);
+                    console.log("[FloatingNote] Created new leaf in popout parent", {
+                        index: i,
+                        type: savedLeaf.viewState.type,
+                    });
                 } else {
-                    console.warn("[FloatingNote] Falling back to getLeaf('tab') for dashboard restore", tab.notePath);
+                    console.warn("[FloatingNote] Falling back to getLeaf('tab') while restoring dashboard leaf", savedLeaf.viewState.type);
                     newLeaf = this.app.workspace.getLeaf('tab');
                 }
 
-                await newLeaf.openFile(file);
-                console.log("[FloatingNote] Restored dashboard tab", tab.notePath);
+                await newLeaf.setViewState(savedLeaf.viewState);
+                console.log("[FloatingNote] Restored dashboard leaf", {
+                    index: i,
+                    type: savedLeaf.viewState.type,
+                });
             }
 
-            const activeTab = dashboard.groups[0].tabs.find(t => t.isActive);
-            if (activeTab) {
+            const activeLeaf = dashboard.groups[0].leaves.find(t => t.isActive);
+            if (activeLeaf) {
                 const matchingLeaf = this.floatingLeaves.size ? [...this.floatingLeaves] : [];
-                console.log("[FloatingNote] Active-tab restore hint", activeTab.notePath, matchingLeaf.length);
+                console.log("[FloatingNote] Active-leaf restore hint", activeLeaf.viewState.type, matchingLeaf.length);
 
                 // Optional logic for refocusing the active tab could be put here
-                // It might require iterating leaves in parentTabs to find the exact tab that matches activeTab.notePath.
             }
 
         } catch (error) {

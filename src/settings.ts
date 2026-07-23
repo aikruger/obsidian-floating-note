@@ -161,7 +161,7 @@ export class FloatingNoteSettingTab extends PluginSettingTab {
         }
 
         for (const dashboard of this.plugin.settings.savedDashboards) {
-            const tabCount = dashboard.groups.reduce((sum, group) => sum + group.tabs.length, 0);
+            const tabCount = dashboard.groups.reduce((sum, group) => sum + group.leaves.length, 0);
 
             const block = containerEl.createDiv({ cls: "floating-note-dashboard-item" });
             block.style.border = "1px solid var(--background-modifier-border)";
