@@ -121,20 +121,31 @@ export default class FloatingNotePlugin extends Plugin {
     }
 
     private getActivePopoutLeaf(): WorkspaceLeaf | null {
-        const leaf = this.app.workspace.getActiveLeaf();
+        const workspaceAny = this.app.workspace as any;
+
+        const leaf: WorkspaceLeaf | null =
+            workspaceAny.activeLeaf ??
+            this.app.workspace.getMostRecentLeaf() ??
+            null;
+
+        console.log("[FloatingNote] getActivePopoutLeaf: candidate leaf", leaf);
+
         if (!leaf) {
-            console.warn("[FloatingNote] No active leaf found while trying to detect popout leaf");
+            console.warn("[FloatingNote] No active or recent leaf found while trying to detect popout leaf");
             return null;
         }
 
-        const root = (leaf as any).getRoot?.();
-        const container = (leaf as any).getContainer?.();
+        const container = (leaf as any).containerEl ?? (leaf.view as any)?.containerEl;
+        const win = container?.win ?? (leaf.view as any)?.containerEl?.win;
 
-        console.log("[FloatingNote] Active leaf root/container", { root, container });
+        console.log("[FloatingNote] getActivePopoutLeaf: container/window info", {
+            hasContainer: !!container,
+            hasWindow: !!win,
+            isMainWindow: win === window,
+        });
 
-        const isPopout = !!container && container !== this.app.workspace.rootSplit;
-        if (!isPopout) {
-            console.warn("[FloatingNote] Active leaf does not appear to belong to a popout window");
+        if (!win || win === window) {
+            console.warn("[FloatingNote] Active leaf appears to belong to the main window, not a popout");
             return null;
         }
 
@@ -156,67 +167,73 @@ export default class FloatingNotePlugin extends Plugin {
     }
 
     public captureActiveFloatingDashboard(): SavedFloatingDashboard | null {
-        const activeLeaf = this.getActivePopoutLeaf();
-        if (!activeLeaf) {
-            new Notice("Floating Note: focus a floating dashboard tab before saving.");
-            console.warn("[FloatingNote] Dashboard capture aborted because no active popout leaf was found");
-            return null;
-        }
-
-        const leaves = this.getLeavesInSamePopoutTabGroup(activeLeaf);
-        const popoutWindow = (activeLeaf.view.containerEl as any)?.win;
-        const electronWindow = popoutWindow?.electronWindow;
-
-        if (!electronWindow) {
-            new Notice("Floating Note: could not access floating window bounds.");
-            console.warn("[FloatingNote] Dashboard capture aborted because electronWindow was unavailable");
-            return null;
-        }
-
-        const bounds = electronWindow.getBounds();
-        console.log("[FloatingNote] Capturing dashboard bounds", bounds);
-
-        const tabs: SavedDashboardTab[] = [];
-        for (const leaf of leaves) {
-            const file = (leaf.view as any)?.file;
-            if (file instanceof TFile && file.extension === "md") {
-                const isActive = leaf === activeLeaf;
-                tabs.push({
-                    notePath: file.path,
-                    isActive,
-                });
-                console.log("[FloatingNote] Captured dashboard tab", { path: file.path, isActive });
-            } else {
-                console.warn("[FloatingNote] Skipping non-markdown or missing file leaf during dashboard capture", leaf);
+        try {
+            const activeLeaf = this.getActivePopoutLeaf();
+            if (!activeLeaf) {
+                new Notice("Floating Note: focus a floating dashboard tab before saving.");
+                console.warn("[FloatingNote] Dashboard capture aborted because no active popout leaf was found");
+                return null;
             }
-        }
 
-        if (tabs.length === 0) {
-            new Notice("Floating Note: no markdown tabs found in the active floating dashboard.");
-            console.warn("[FloatingNote] Dashboard capture found zero markdown tabs");
+            const leaves = this.getLeavesInSamePopoutTabGroup(activeLeaf);
+            const popoutWindow = (activeLeaf.view.containerEl as any)?.win;
+            const electronWindow = popoutWindow?.electronWindow;
+
+            if (!electronWindow) {
+                new Notice("Floating Note: could not access floating window bounds.");
+                console.warn("[FloatingNote] Dashboard capture aborted because electronWindow was unavailable");
+                return null;
+            }
+
+            const bounds = electronWindow.getBounds();
+            console.log("[FloatingNote] Capturing dashboard bounds", bounds);
+
+            const tabs: SavedDashboardTab[] = [];
+            for (const leaf of leaves) {
+                const file = (leaf.view as any)?.file;
+                if (file instanceof TFile && file.extension === "md") {
+                    const isActive = leaf === activeLeaf;
+                    tabs.push({
+                        notePath: file.path,
+                        isActive,
+                    });
+                    console.log("[FloatingNote] Captured dashboard tab", { path: file.path, isActive });
+                } else {
+                    console.warn("[FloatingNote] Skipping non-markdown or missing file leaf during dashboard capture", leaf);
+                }
+            }
+
+            if (tabs.length === 0) {
+                new Notice("Floating Note: no markdown tabs found in the active floating dashboard.");
+                console.warn("[FloatingNote] Dashboard capture found zero markdown tabs");
+                return null;
+            }
+
+            console.log("[FloatingNote] Using plugin defaults for opacity/alwaysOnTop during dashboard capture");
+
+            return {
+                id: "",
+                name: "",
+                width: bounds.width,
+                height: bounds.height,
+                x: bounds.x,
+                y: bounds.y,
+                position: 'custom',
+                opacity: this.settings.defaultOpacity,
+                alwaysOnTop: this.settings.alwaysOnTop,
+                openOnStartup: false,
+                groups: [
+                    {
+                        id: "group-1",
+                        tabs,
+                    },
+                ],
+            };
+        } catch (error) {
+            console.error("[FloatingNote] captureActiveFloatingDashboard failed", error);
+            new Notice("Floating Note: failed to inspect the current floating dashboard.");
             return null;
         }
-
-        console.log("[FloatingNote] Using plugin defaults for opacity/alwaysOnTop during dashboard capture");
-
-        return {
-            id: "",
-            name: "",
-            width: bounds.width,
-            height: bounds.height,
-            x: bounds.x,
-            y: bounds.y,
-            position: 'custom',
-            opacity: this.settings.defaultOpacity,
-            alwaysOnTop: this.settings.alwaysOnTop,
-            openOnStartup: false,
-            groups: [
-                {
-                    id: "group-1",
-                    tabs,
-                },
-            ],
-        };
     }
 
     public async saveDashboardFromActivePopout(name: string, openOnStartup: boolean): Promise<boolean> {
