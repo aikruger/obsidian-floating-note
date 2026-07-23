@@ -1,8 +1,34 @@
+import { ViewState } from "obsidian";
+
 export interface NoteGeometry {
     x: number;
     y: number;
     width: number;
     height: number;
+}
+
+export interface SavedDashboardLeaf {
+    viewState: ViewState;
+    isActive?: boolean;
+}
+
+export interface SavedDashboardGroup {
+    id: string;
+    leaves: SavedDashboardLeaf[];
+}
+
+export interface SavedFloatingDashboard {
+    id: string;
+    name: string;
+    width: number;
+    height: number;
+    x?: number;
+    y?: number;
+    position?: 'center' | 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | 'custom';
+    opacity: number;
+    alwaysOnTop: boolean;
+    openOnStartup: boolean;
+    groups: SavedDashboardGroup[];
 }
 
 export interface FloatingNoteSettings {
@@ -13,6 +39,7 @@ export interface FloatingNoteSettings {
     notePositions: Record<string, NoteGeometry>;
     alwaysOnTop: boolean;
     defaultOpacity: number;
+    savedDashboards: SavedFloatingDashboard[];
 }
 
 export const DEFAULT_SETTINGS: FloatingNoteSettings = {
@@ -23,4 +50,5 @@ export const DEFAULT_SETTINGS: FloatingNoteSettings = {
     notePositions: {},
     alwaysOnTop: true,
     defaultOpacity: 1.0,
+    savedDashboards: [],
 };
